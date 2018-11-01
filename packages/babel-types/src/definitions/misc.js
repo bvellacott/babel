@@ -1,7 +1,8 @@
-import defineType, { assertNodeType } from "./index";
+// @flow
+import defineType, { assertNodeType } from "./utils";
 
 defineType("Noop", {
-  visitor: []
+  visitor: [],
 });
 
 defineType("ParenthesizedExpression", {
@@ -9,7 +10,7 @@ defineType("ParenthesizedExpression", {
   aliases: ["Expression", "ExpressionWrapper"],
   fields: {
     expression: {
-      validate: assertNodeType("Expression")
-    }
-  }
+      validate: assertNodeType("Expression"),
+    },
+  },
 });

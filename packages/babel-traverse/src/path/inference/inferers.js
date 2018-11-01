@@ -1,15 +1,27 @@
-import * as t from "babel-types";
+import * as t from "@babel/types";
 
 export { default as Identifier } from "./inferer-reference";
 
 export function VariableDeclarator() {
   const id = this.get("id");
 
-  if (id.isIdentifier()) {
-    return this.get("init").getTypeAnnotation();
-  } else {
-    return;
+  if (!id.isIdentifier()) return;
+  const init = this.get("init");
+
+  let type = init.getTypeAnnotation();
+
+  if (type && type.type === "AnyTypeAnnotation") {
+    // Detect "var foo = Array()" calls so we can optimize for arrays vs iterables.
+    if (
+      init.isCallExpression() &&
+      init.get("callee").isIdentifier({ name: "Array" }) &&
+      !init.scope.hasBinding("Array", true /* noGlobals */)
+    ) {
+      type = ArrayExpression();
+    }
   }
+
+  return type;
 }
 
 export function TypeCastExpression(node) {
@@ -52,7 +64,7 @@ export function BinaryExpression(node) {
     return t.booleanTypeAnnotation();
   } else if (operator === "+") {
     const right = this.get("right");
-    const left  = this.get("left");
+    const left = this.get("left");
 
     if (left.isBaseType("number") && right.isBaseType("number")) {
       // both numbers so this will be a number
@@ -65,7 +77,7 @@ export function BinaryExpression(node) {
     // unsure if left and right are strings or numbers so stay on the safe side
     return t.unionTypeAnnotation([
       t.stringTypeAnnotation(),
-      t.numberTypeAnnotation()
+      t.numberTypeAnnotation(),
     ]);
   }
 }
@@ -73,19 +85,21 @@ export function BinaryExpression(node) {
 export function LogicalExpression() {
   return t.createUnionTypeAnnotation([
     this.get("left").getTypeAnnotation(),
-    this.get("right").getTypeAnnotation()
+    this.get("right").getTypeAnnotation(),
   ]);
 }
 
 export function ConditionalExpression() {
   return t.createUnionTypeAnnotation([
     this.get("consequent").getTypeAnnotation(),
-    this.get("alternate").getTypeAnnotation()
+    this.get("alternate").getTypeAnnotation(),
   ]);
 }
 
 export function SequenceExpression() {
-  return this.get("expressions").pop().getTypeAnnotation();
+  return this.get("expressions")
+    .pop()
+    .getTypeAnnotation();
 }
 
 export function AssignmentExpression() {
@@ -142,10 +156,25 @@ export {
   Func as ArrowFunctionExpression,
   Func as FunctionDeclaration,
   Func as ClassExpression,
-  Func as ClassDeclaration
+  Func as ClassDeclaration,
 };
 
+const isArrayFrom = t.buildMatchMemberExpression("Array.from");
+const isObjectKeys = t.buildMatchMemberExpression("Object.keys");
+const isObjectValues = t.buildMatchMemberExpression("Object.values");
+const isObjectEntries = t.buildMatchMemberExpression("Object.entries");
 export function CallExpression() {
+  const { callee } = this.node;
+  if (isObjectKeys(callee)) {
+    return t.arrayTypeAnnotation(t.stringTypeAnnotation());
+  } else if (isArrayFrom(callee) || isObjectValues(callee)) {
+    return t.arrayTypeAnnotation(t.anyTypeAnnotation());
+  } else if (isObjectEntries(callee)) {
+    return t.arrayTypeAnnotation(
+      t.tupleTypeAnnotation([t.stringTypeAnnotation(), t.anyTypeAnnotation()]),
+    );
+  }
+
   return resolveCall(this.get("callee"));
 }
 

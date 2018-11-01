@@ -1,4 +1,4 @@
-import * as t from "babel-types";
+import * as t from "@babel/types";
 
 const visitor = {
   Scope(path, state) {
@@ -21,13 +21,15 @@ const visitor = {
       firstId = declar.node.id;
 
       if (declar.node.init) {
-        nodes.push(t.expressionStatement(
-          t.assignmentExpression("=", declar.node.id, declar.node.init)
-        ));
+        nodes.push(
+          t.expressionStatement(
+            t.assignmentExpression("=", declar.node.id, declar.node.init),
+          ),
+        );
       }
 
       for (const name in declar.getBindingIdentifiers()) {
-        state.emit(t.identifier(name), name);
+        state.emit(t.identifier(name), name, declar.node.init !== null);
       }
     }
 
@@ -37,9 +39,9 @@ const visitor = {
     } else {
       path.replaceWithMultiple(nodes);
     }
-  }
+  },
 };
 
-export default function (path, emit: Function, kind: "var" | "let" = "var") {
+export default function(path, emit: Function, kind: "var" | "let" = "var") {
   path.traverse(visitor, { kind, emit });
 }

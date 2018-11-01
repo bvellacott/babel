@@ -1,18 +1,26 @@
+import { declare } from "@babel/helper-plugin-utils";
 import pull from "lodash/pull";
+import { types as t } from "@babel/core";
 
-export default function ({ types: t }) {
+export default declare(api => {
+  api.assertVersion(7);
+
   function isProtoKey(node) {
     return t.isLiteral(t.toComputedKey(node, node.key), { value: "__proto__" });
   }
 
   function isProtoAssignmentExpression(node) {
     const left = node.left;
-    return t.isMemberExpression(left) &&
-      t.isLiteral(t.toComputedKey(left, left.property), { value: "__proto__" });
+    return (
+      t.isMemberExpression(left) &&
+      t.isLiteral(t.toComputedKey(left, left.property), { value: "__proto__" })
+    );
   }
 
   function buildDefaultsCallExpression(expr, ref, file) {
-    return t.expressionStatement(t.callExpression(file.addHelper("defaults"), [ref, expr.right]));
+    return t.expressionStatement(
+      t.callExpression(file.addHelper("defaults"), [ref, expr.right]),
+    );
   }
 
   return {
@@ -21,12 +29,22 @@ export default function ({ types: t }) {
         if (!isProtoAssignmentExpression(path.node)) return;
 
         const nodes = [];
-        const left  = path.node.left.object;
-        const temp  = path.scope.maybeGenerateMemoised(left);
+        const left = path.node.left.object;
+        const temp = path.scope.maybeGenerateMemoised(left);
 
-        if (temp) nodes.push(t.expressionStatement(t.assignmentExpression("=", temp, left)));
-        nodes.push(buildDefaultsCallExpression(path.node, temp || left, file));
-        if (temp) nodes.push(temp);
+        if (temp) {
+          nodes.push(
+            t.expressionStatement(t.assignmentExpression("=", temp, left)),
+          );
+        }
+        nodes.push(
+          buildDefaultsCallExpression(
+            path.node,
+            t.cloneNode(temp || left),
+            file,
+          ),
+        );
+        if (temp) nodes.push(t.cloneNode(temp));
 
         path.replaceWithMultiple(nodes);
       },
@@ -36,7 +54,9 @@ export default function ({ types: t }) {
         if (!t.isAssignmentExpression(expr, { operator: "=" })) return;
 
         if (isProtoAssignmentExpression(expr)) {
-          path.replaceWith(buildDefaultsCallExpression(expr, expr.left.object, file));
+          path.replaceWith(
+            buildDefaultsCallExpression(expr, expr.left.object, file),
+          );
         }
       },
 
@@ -56,7 +76,7 @@ export default function ({ types: t }) {
           if (node.properties.length) args.push(node);
           path.replaceWith(t.callExpression(file.addHelper("extends"), args));
         }
-      }
-    }
+      },
+    },
   };
-}
+});

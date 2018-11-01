@@ -1,72 +1,105 @@
-const commander = require("commander");
-const defaults  = require("lodash/defaults");
-const readdir   = require("fs-readdir-recursive");
-const index     = require("./index");
-const babel     = require("babel-core");
-const util      = require("babel-core").util;
-const path      = require("path");
-const fs        = require("fs");
+import readdirRecursive from "fs-readdir-recursive";
+import * as babel from "@babel/core";
+import includes from "lodash/includes";
+import path from "path";
+import fs from "fs";
 
 export function chmod(src, dest) {
   fs.chmodSync(dest, fs.statSync(src).mode);
 }
 
-export function readdirFilter(filename) {
-  return readdir(filename).filter(function (filename) {
-    return util.canCompile(filename);
+type ReaddirFilter = (filename: string) => boolean;
+
+export function readdir(
+  dirname: string,
+  includeDotfiles: boolean,
+  filter: ReaddirFilter,
+) {
+  return readdirRecursive(dirname, (filename, _index, currentDirectory) => {
+    const stat = fs.statSync(path.join(currentDirectory, filename));
+
+    if (stat.isDirectory()) return true;
+
+    return (
+      (includeDotfiles || filename[0] !== ".") && (!filter || filter(filename))
+    );
   });
 }
 
-export { readdir };
+export function readdirForCompilable(
+  dirname: string,
+  includeDotfiles: boolean,
+) {
+  return readdir(dirname, includeDotfiles, isCompilableExtension);
+}
 
-export const canCompile = util.canCompile;
-
-export function shouldIgnore(loc) {
-  return util.shouldIgnore(loc, index.opts.ignore, index.opts.only);
+/**
+ * Test if a filename ends with a compilable extension.
+ */
+export function isCompilableExtension(
+  filename: string,
+  altExts?: Array<string>,
+): boolean {
+  const exts = altExts || babel.DEFAULT_EXTENSIONS;
+  const ext = path.extname(filename);
+  return includes(exts, ext);
 }
 
 export function addSourceMappingUrl(code, loc) {
   return code + "\n//# sourceMappingURL=" + path.basename(loc);
 }
 
-export function log(msg) {
-  if (!commander.quiet) console.log(msg);
-}
+const CALLER = {
+  name: "@babel/cli",
+};
 
 export function transform(filename, code, opts) {
-  opts = defaults(opts || {}, index.opts);
-  opts.filename = filename;
+  opts = {
+    ...opts,
+    caller: CALLER,
+    filename,
+  };
 
-  const result = babel.transform(code, opts);
-  result.filename = filename;
-  result.actual = code;
-  return result;
+  return new Promise((resolve, reject) => {
+    babel.transform(code, opts, (err, result) => {
+      if (err) reject(err);
+      else resolve(result);
+    });
+  });
 }
 
 export function compile(filename, opts) {
-  try {
-    const code = fs.readFileSync(filename, "utf8");
-    return transform(filename, code, opts);
-  } catch (err) {
-    if (commander.watch) {
-      console.error(toErrorStack(err));
-      return { ignored: true };
-    } else {
-      throw err;
-    }
+  opts = {
+    ...opts,
+    caller: CALLER,
+  };
+
+  return new Promise((resolve, reject) => {
+    babel.transformFile(filename, opts, (err, result) => {
+      if (err) reject(err);
+      else resolve(result);
+    });
+  });
+}
+
+export function deleteDir(path) {
+  if (fs.existsSync(path)) {
+    fs.readdirSync(path).forEach(function(file) {
+      const curPath = path + "/" + file;
+      if (fs.lstatSync(curPath).isDirectory()) {
+        // recurse
+        deleteDir(curPath);
+      } else {
+        // delete file
+        fs.unlinkSync(curPath);
+      }
+    });
+    fs.rmdirSync(path);
   }
 }
 
-function toErrorStack(err) {
-  if (err._babel && err instanceof SyntaxError) {
-    return `${err.name}: ${err.message}\n${err.codeFrame}`;
-  } else {
-    return err.stack;
-  }
-}
-
-process.on("uncaughtException", function (err) {
-  console.error(toErrorStack(err));
+process.on("uncaughtException", function(err) {
+  console.error(err);
   process.exit(1);
 });
 
@@ -76,8 +109,15 @@ export function requireChokidar() {
   } catch (err) {
     console.error(
       "The optional dependency chokidar failed to install and is required for " +
-      "--watch. Chokidar is likely not supported on your platform."
+        "--watch. Chokidar is likely not supported on your platform.",
     );
     throw err;
   }
+}
+
+export function adjustRelative(relative, keepFileExtension) {
+  if (keepFileExtension) {
+    return relative;
+  }
+  return relative.replace(/\.(\w*?)$/, "") + ".js";
 }

@@ -1,8 +1,5 @@
-import detectIndent from "detect-indent";
 import SourceMap from "./source-map";
-import * as messages from "babel-messages";
-import Printer from "./printer";
-import type { Format } from "./printer";
+import Printer, { type Format } from "./printer";
 
 /**
  * Babel's code generator, turns an ast into code, maintaining sourcemaps,
@@ -11,10 +8,9 @@ import type { Format } from "./printer";
 
 class Generator extends Printer {
   constructor(ast, opts = {}, code) {
-    const tokens = ast.tokens || [];
-    const format = normalizeOptions(code, opts, tokens);
+    const format = normalizeOptions(code, opts);
     const map = opts.sourceMaps ? new SourceMap(opts, code) : null;
-    super(format, map, tokens);
+    super(format, map);
 
     this.ast = ast;
   }
@@ -39,13 +35,7 @@ class Generator extends Printer {
  * - If `opts.compact = "auto"` and the code is over 500KB, `compact` will be set to `true`.
  */
 
-function normalizeOptions(code, opts, tokens): Format {
-  let style = "  ";
-  if (code && typeof code === "string") {
-    const indent = detectIndent(code).indent;
-    if (indent && indent !== " ") style = indent;
-  }
-
+function normalizeOptions(code, opts): Format {
   const format = {
     auxiliaryCommentBefore: opts.auxiliaryCommentBefore,
     auxiliaryCommentAfter: opts.auxiliaryCommentAfter,
@@ -56,30 +46,41 @@ function normalizeOptions(code, opts, tokens): Format {
     compact: opts.compact,
     minified: opts.minified,
     concise: opts.concise,
-    quotes: opts.quotes || findCommonStringDelimiter(code, tokens),
     jsonCompatibleStrings: opts.jsonCompatibleStrings,
     indent: {
       adjustMultilineComment: true,
-      style: style,
-      base: 0
+      style: "  ",
+      base: 0,
     },
-    flowCommaSeparator: opts.flowCommaSeparator,
+    decoratorsBeforeExport: !!opts.decoratorsBeforeExport,
+    jsescOption: {
+      quotes: "double",
+      wrap: true,
+      ...opts.jsescOption,
+    },
   };
 
   if (format.minified) {
     format.compact = true;
 
-    format.shouldPrintComment = format.shouldPrintComment || (() => format.comments);
+    format.shouldPrintComment =
+      format.shouldPrintComment || (() => format.comments);
   } else {
-    format.shouldPrintComment = format.shouldPrintComment || ((value) => format.comments ||
-      (value.indexOf("@license") >= 0 || value.indexOf("@preserve") >= 0));
+    format.shouldPrintComment =
+      format.shouldPrintComment ||
+      (value =>
+        format.comments ||
+        (value.indexOf("@license") >= 0 || value.indexOf("@preserve") >= 0));
   }
 
   if (format.compact === "auto") {
-    format.compact = code.length > 500000; // 500KB
+    format.compact = code.length > 500_000; // 500KB
 
     if (format.compact) {
-      console.error("[BABEL] " + messages.get("codeGeneratorDeopt", opts.filename, "500KB"));
+      console.error(
+        "[BABEL] Note: The code generator has deoptimised the styling of " +
+          `${opts.filename} as it exceeds the max of ${"500KB"}.`,
+      );
     }
   }
 
@@ -88,43 +89,6 @@ function normalizeOptions(code, opts, tokens): Format {
   }
 
   return format;
-}
-
-/**
- * Determine if input code uses more single or double quotes.
- */
-function findCommonStringDelimiter(code, tokens) {
-  const DEFAULT_STRING_DELIMITER = "double";
-  if (!code) {
-    return DEFAULT_STRING_DELIMITER;
-  }
-
-  const occurrences = {
-    single: 0,
-    double: 0
-  };
-
-  let checked = 0;
-
-  for (let i = 0; i < tokens.length; i++) {
-    const token = tokens[i];
-    if (token.type.label !== "string") continue;
-
-    const raw = code.slice(token.start, token.end);
-    if (raw[0] === "'") {
-      occurrences.single++;
-    } else {
-      occurrences.double++;
-    }
-
-    checked++;
-    if (checked >= 3) break;
-  }
-  if (occurrences.single > occurrences.double) {
-    return "single";
-  } else {
-    return "double";
-  }
 }
 
 /**
@@ -142,7 +106,7 @@ export class CodeGenerator {
   }
 }
 
-export default function (ast: Object, opts: Object, code: string): Object {
+export default function(ast: Object, opts: Object, code: string): Object {
   const gen = new Generator(ast, opts, code);
   return gen.generate();
 }

@@ -1,4 +1,5 @@
 // This file contains methods responsible for dealing with comments.
+import * as t from "@babel/types";
 
 /**
  * Share comments amongst siblings.
@@ -12,24 +13,23 @@ export function shareCommentsWithSiblings() {
   if (!node) return;
 
   const trailing = node.trailingComments;
-  const leading  = node.leadingComments;
+  const leading = node.leadingComments;
   if (!trailing && !leading) return;
 
-  let prev = this.getSibling(this.key - 1);
-  let next = this.getSibling(this.key + 1);
-
-  if (!prev.node) prev = next;
-  if (!next.node) next = prev;
-
-  prev.addComments("trailing", leading);
-  next.addComments("leading", trailing);
+  const prev = this.getSibling(this.key - 1);
+  const next = this.getSibling(this.key + 1);
+  const hasPrev = Boolean(prev.node);
+  const hasNext = Boolean(next.node);
+  if (hasPrev && hasNext) {
+  } else if (hasPrev) {
+    prev.addComments("trailing", trailing);
+  } else if (hasNext) {
+    next.addComments("leading", leading);
+  }
 }
 
-export function addComment(type, content, line?) {
-  this.addComments(type, [{
-    type: line ? "CommentLine" : "CommentBlock",
-    value: content
-  }]);
+export function addComment(type: string, content: string, line?: boolean) {
+  t.addComment(this.node, type, content, line);
 }
 
 /**
@@ -37,16 +37,5 @@ export function addComment(type, content, line?) {
  */
 
 export function addComments(type: string, comments: Array) {
-  if (!comments) return;
-
-  const node = this.node;
-  if (!node) return;
-
-  const key = `${type}Comments`;
-
-  if (node[key]) {
-    node[key] = node[key].concat(comments);
-  } else {
-    node[key] = comments;
-  }
+  t.addComments(this.node, type, comments);
 }

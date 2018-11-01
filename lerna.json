@@ -1,27 +1,37 @@
 {
-  "lerna": "2.0.0-beta.38",
-  "version": "6.25.0",
+  "lerna": "2.11.0",
+  "version": "7.1.4",
   "changelog": {
     "repo": "babel/babel",
+    "cacheDir": ".changelog",
     "labels": {
-      "tag: spec compliancy": ":eyeglasses: Spec Compliancy",
-      "tag: breaking change": ":boom: Breaking Change",
-      "tag: new feature": ":rocket: New Feature",
-      "tag: bug fix": ":bug: Bug Fix",
-      "tag: polish": ":nail_care: Polish",
-      "tag: documentation": ":memo: Documentation",
-      "tag: internal": ":house: Internal"
+      "PR: Spec Compliancy :eyeglasses:": ":eyeglasses: Spec Compliancy",
+      "PR: Breaking Change :boom:": ":boom: Breaking Change",
+      "PR: New Feature :rocket:": ":rocket: New Feature",
+      "PR: Bug Fix :bug:": ":bug: Bug Fix",
+      "PR: Polish :nail_care:": ":nail_care: Polish",
+      "PR: Docs :memo:": ":memo: Documentation",
+      "PR: Internal :house:": ":house: Internal"
     }
-  },
-  "bootstrapConfig": {
-    "ignore": "babel-runtime"
   },
   "commands": {
     "publish": {
       "ignore": [
         "*.md",
-        "test/**"
+        "*.json",
+        "*.txt",
+        "test/**",
+        "codemods/**",
+        "package.json"
       ]
     }
-  }
+  },
+  "packages": [
+    "packages/*",
+    "codemods/*"
+  ],
+  "npmClient": "yarn",
+  "npmClientArgs": [
+    "--no-lockfile"
+  ]
 }

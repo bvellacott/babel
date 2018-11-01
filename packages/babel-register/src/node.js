@@ -1,147 +1,158 @@
 import deepClone from "lodash/cloneDeep";
 import sourceMapSupport from "source-map-support";
 import * as registerCache from "./cache";
-import extend from "lodash/extend";
-import * as babel from "babel-core";
-import { util, OptionManager } from "babel-core";
+import escapeRegExp from "lodash/escapeRegExp";
+import * as babel from "@babel/core";
+import { OptionManager, DEFAULT_EXTENSIONS } from "@babel/core";
+import { addHook } from "pirates";
 import fs from "fs";
 import path from "path";
 
-sourceMapSupport.install({
-  handleUncaughtExceptions: false,
-  environment : "node",
-  retrieveSourceMap(source) {
-    const map = maps && maps[source];
-    if (map) {
-      return {
-        url: null,
-        map: map
-      };
-    } else {
-      return null;
-    }
-  }
-});
+const maps = {};
+let transformOpts = {};
+let piratesRevert = null;
 
-registerCache.load();
-let cache = registerCache.get();
-
-const transformOpts = {};
-
-let ignore;
-let only;
-
-let oldHandlers   = {};
-const maps          = {};
-
-const cwd = process.cwd();
-
-function getRelativePath(filename) {
-  return path.relative(cwd, filename);
+function installSourceMapSupport() {
+  sourceMapSupport.install({
+    handleUncaughtExceptions: false,
+    environment: "node",
+    retrieveSourceMap(source) {
+      const map = maps && maps[source];
+      if (map) {
+        return {
+          url: null,
+          map: map,
+        };
+      } else {
+        return null;
+      }
+    },
+  });
 }
+
+let cache;
 
 function mtime(filename) {
   return +fs.statSync(filename).mtime;
 }
 
-function compile(filename) {
-  let result;
-
+function compile(code, filename) {
   // merge in base options and resolve all the plugins and presets relative to this file
-  const opts = new OptionManager().init(extend(
-    { sourceRoot: path.dirname(filename) }, // sourceRoot can be overwritten
-    deepClone(transformOpts),
-    { filename }
-  ));
+  const opts = new OptionManager().init(
+    // sourceRoot can be overwritten
+    {
+      sourceRoot: path.dirname(filename),
+      ...deepClone(transformOpts),
+      filename,
+    },
+  );
+
+  // Bail out ASAP if the file has been ignored.
+  if (opts === null) return code;
 
   let cacheKey = `${JSON.stringify(opts)}:${babel.version}`;
 
-  const env = process.env.BABEL_ENV || process.env.NODE_ENV;
+  const env = babel.getEnv(false);
+
   if (env) cacheKey += `:${env}`;
 
-  if (cache) {
-    const cached = cache[cacheKey];
-    if (cached && cached.mtime === mtime(filename)) {
-      result = cached;
+  let cached = cache && cache[cacheKey];
+
+  if (!cached || cached.mtime !== mtime(filename)) {
+    cached = babel.transform(code, {
+      ...opts,
+      sourceMaps: opts.sourceMaps === undefined ? "both" : opts.sourceMaps,
+      ast: false,
+    });
+
+    if (cache) {
+      cache[cacheKey] = cached;
+      cached.mtime = mtime(filename);
     }
   }
 
-  if (!result) {
-    result = babel.transformFileSync(filename, extend(opts, {
-      // Do not process config files since has already been done with the OptionManager
-      // calls above and would introduce duplicates.
-      babelrc: false,
-      sourceMaps: "both",
-      ast: false
-    }));
-  }
-
-  if (cache) {
-    cache[cacheKey] = result;
-    result.mtime = mtime(filename);
-  }
-
-  maps[filename] = result.map;
-
-  return result.code;
-}
-
-function shouldIgnore(filename) {
-  if (!ignore && !only) {
-    return getRelativePath(filename).split(path.sep).indexOf("node_modules") >= 0;
-  } else {
-    return util.shouldIgnore(filename, ignore || [], only);
-  }
-}
-
-function loader(m, filename) {
-  m._compile(compile(filename), filename);
-}
-
-function registerExtension(ext) {
-  const old = oldHandlers[ext] || oldHandlers[".js"] || require.extensions[".js"];
-
-  require.extensions[ext] = function (m, filename) {
-    if (shouldIgnore(filename)) {
-      old(m, filename);
-    } else {
-      loader(m, filename, old);
+  if (cached.map) {
+    if (Object.keys(maps).length === 0) {
+      installSourceMapSupport();
     }
+    maps[filename] = cached.map;
+  }
+
+  return cached.code;
+}
+
+let compiling = false;
+
+function compileHook(code, filename) {
+  if (compiling) return code;
+
+  try {
+    compiling = true;
+    return compile(code, filename);
+  } finally {
+    compiling = false;
+  }
+}
+
+function hookExtensions(exts) {
+  if (piratesRevert) piratesRevert();
+  piratesRevert = addHook(compileHook, { exts, ignoreNodeModules: false });
+}
+
+export function revert() {
+  if (piratesRevert) piratesRevert();
+}
+
+register();
+
+export default function register(opts?: Object = {}) {
+  // Clone to avoid mutating the arguments object with the 'delete's below.
+  opts = {
+    ...opts,
   };
-}
+  hookExtensions(opts.extensions || DEFAULT_EXTENSIONS);
 
-function hookExtensions(_exts) {
-  Object.keys(oldHandlers).forEach(function (ext) {
-    const old = oldHandlers[ext];
-    if (old === undefined) {
-      delete require.extensions[ext];
-    } else {
-      require.extensions[ext] = old;
-    }
-  });
-
-  oldHandlers = {};
-
-  _exts.forEach(function (ext) {
-    oldHandlers[ext] = require.extensions[ext];
-    registerExtension(ext);
-  });
-}
-
-hookExtensions(util.canCompile.EXTENSIONS);
-
-export default function (opts?: Object = {}) {
-  if (opts.only != null) only = util.arrayify(opts.only, util.regexify);
-  if (opts.ignore != null) ignore = util.arrayify(opts.ignore, util.regexify);
-
-  if (opts.extensions) hookExtensions(util.arrayify(opts.extensions));
-
-  if (opts.cache === false) cache = null;
+  if (opts.cache === false && cache) {
+    registerCache.clear();
+    cache = null;
+  } else if (opts.cache !== false && !cache) {
+    registerCache.load();
+    cache = registerCache.get();
+  }
 
   delete opts.extensions;
-  delete opts.ignore;
   delete opts.cache;
-  delete opts.only;
 
-  extend(transformOpts, opts);
+  transformOpts = {
+    ...opts,
+    caller: {
+      name: "@babel/register",
+      ...(opts.caller || {}),
+    },
+  };
+
+  let { cwd = "." } = transformOpts;
+
+  // Ensure that the working directory is resolved up front so that
+  // things don't break if it changes later.
+  cwd = transformOpts.cwd = path.resolve(cwd);
+
+  if (transformOpts.ignore === undefined && transformOpts.only === undefined) {
+    transformOpts.only = [
+      // Only compile things inside the current working directory.
+      new RegExp("^" + escapeRegExp(cwd), "i"),
+    ];
+    transformOpts.ignore = [
+      // Ignore any node_modules inside the current working directory.
+      new RegExp(
+        "^" +
+          escapeRegExp(cwd) +
+          "(?:" +
+          path.sep +
+          ".*)?" +
+          escapeRegExp(path.sep + "node_modules" + path.sep),
+        "i",
+      ),
+    ];
+  }
 }

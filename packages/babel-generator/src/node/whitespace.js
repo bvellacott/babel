@@ -1,9 +1,8 @@
-import map from "lodash/map";
-import * as t from "babel-types";
+import * as t from "@babel/types";
 
 type WhitespaceObject = {
   before?: boolean,
-  after?: boolean
+  after?: boolean,
 };
 
 /**
@@ -45,23 +44,29 @@ function isHelper(node) {
   } else if (t.isCallExpression(node)) {
     return isHelper(node.callee);
   } else if (t.isBinary(node) || t.isAssignmentExpression(node)) {
-    return (t.isIdentifier(node.left) && isHelper(node.left)) || isHelper(node.right);
+    return (
+      (t.isIdentifier(node.left) && isHelper(node.left)) || isHelper(node.right)
+    );
   } else {
     return false;
   }
 }
 
 function isType(node) {
-  return t.isLiteral(node) || t.isObjectExpression(node) || t.isArrayExpression(node) ||
-         t.isIdentifier(node) || t.isMemberExpression(node);
+  return (
+    t.isLiteral(node) ||
+    t.isObjectExpression(node) ||
+    t.isArrayExpression(node) ||
+    t.isIdentifier(node) ||
+    t.isMemberExpression(node)
+  );
 }
 
 /**
  * Tests for node types that need whitespace.
  */
 
-exports.nodes = {
-
+export const nodes = {
   /**
    * Test if AssignmentExpression needs whitespace.
    */
@@ -71,7 +76,7 @@ exports.nodes = {
     if ((state.hasCall && state.hasHelper) || state.hasFunction) {
       return {
         before: state.hasFunction,
-        after: true
+        after: true,
       };
     }
   },
@@ -80,9 +85,12 @@ exports.nodes = {
    * Test if SwitchCase needs whitespace.
    */
 
-  SwitchCase(node: Object, parent: Object): ?WhitespaceObject {
+  SwitchCase(node: Object, parent: Object): WhitespaceObject {
     return {
-      before: node.consequent.length || parent.cases[0] === node
+      before: node.consequent.length || parent.cases[0] === node,
+      after:
+        !node.consequent.length &&
+        parent.cases[parent.cases.length - 1] === node,
     };
   },
 
@@ -93,7 +101,7 @@ exports.nodes = {
   LogicalExpression(node: Object): ?WhitespaceObject {
     if (t.isFunction(node.left) || t.isFunction(node.right)) {
       return {
-        after: true
+        after: true,
       };
     }
   },
@@ -105,7 +113,7 @@ exports.nodes = {
   Literal(node: Object): ?WhitespaceObject {
     if (node.value === "use strict") {
       return {
-        after: true
+        after: true,
       };
     }
   },
@@ -118,7 +126,7 @@ exports.nodes = {
     if (t.isFunction(node.callee) || isHelper(node)) {
       return {
         before: true,
-        after: true
+        after: true,
       };
     }
   },
@@ -140,7 +148,7 @@ exports.nodes = {
       if (enabled) {
         return {
           before: true,
-          after: true
+          after: true,
         };
       }
     }
@@ -154,23 +162,65 @@ exports.nodes = {
     if (t.isBlockStatement(node.consequent)) {
       return {
         before: true,
-        after: true
+        after: true,
       };
     }
-  }
+  },
 };
 
 /**
- * Test if Property or SpreadProperty needs whitespace.
+ * Test if Property needs whitespace.
  */
 
-exports.nodes.ObjectProperty =
-exports.nodes.ObjectTypeProperty =
-exports.nodes.ObjectMethod =
-exports.nodes.SpreadProperty = function (node: Object, parent): ?WhitespaceObject {
+nodes.ObjectProperty = nodes.ObjectTypeProperty = nodes.ObjectMethod = function(
+  node: Object,
+  parent,
+): ?WhitespaceObject {
   if (parent.properties[0] === node) {
     return {
-      before: true
+      before: true,
+    };
+  }
+};
+
+nodes.ObjectTypeCallProperty = function(
+  node: Object,
+  parent,
+): ?WhitespaceObject {
+  if (
+    parent.callProperties[0] === node &&
+    (!parent.properties || !parent.properties.length)
+  ) {
+    return {
+      before: true,
+    };
+  }
+};
+
+nodes.ObjectTypeIndexer = function(node: Object, parent): ?WhitespaceObject {
+  if (
+    parent.indexers[0] === node &&
+    (!parent.properties || !parent.properties.length) &&
+    (!parent.callProperties || !parent.callProperties.length)
+  ) {
+    return {
+      before: true,
+    };
+  }
+};
+
+nodes.ObjectTypeInternalSlot = function(
+  node: Object,
+  parent,
+): ?WhitespaceObject {
+  if (
+    parent.internalSlots[0] === node &&
+    (!parent.properties || !parent.properties.length) &&
+    (!parent.callProperties || !parent.callProperties.length) &&
+    (!parent.indexers || !parent.indexers.length)
+  ) {
+    return {
+      before: true,
     };
   }
 };
@@ -179,14 +229,13 @@ exports.nodes.SpreadProperty = function (node: Object, parent): ?WhitespaceObjec
  * Returns lists from node types that need whitespace.
  */
 
-exports.list = {
-
+export const list = {
   /**
    * Return VariableDeclaration declarations init properties.
    */
 
   VariableDeclaration(node: Object): Array<Object> {
-    return map(node.declarations, "init");
+    return node.declarations.map(decl => decl.init);
   },
 
   /**
@@ -203,7 +252,7 @@ exports.list = {
 
   ObjectExpression(node: Object): Array<Object> {
     return node.properties;
-  }
+  },
 };
 
 /**
@@ -216,13 +265,13 @@ exports.list = {
   ["Loop", true],
   ["LabeledStatement", true],
   ["SwitchStatement", true],
-  ["TryStatement", true]
-].forEach(function ([type, amounts]) {
+  ["TryStatement", true],
+].forEach(function([type, amounts]) {
   if (typeof amounts === "boolean") {
     amounts = { after: amounts, before: amounts };
   }
-  [type].concat(t.FLIPPED_ALIAS_KEYS[type] || []).forEach(function (type) {
-    exports.nodes[type] = function () {
+  [type].concat(t.FLIPPED_ALIAS_KEYS[type] || []).forEach(function(type) {
+    nodes[type] = function() {
       return amounts;
     };
   });
