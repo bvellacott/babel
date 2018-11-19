@@ -40,7 +40,7 @@ export const TransformImportsToCommonRoot = (module = {}) => {
             this.ran = true;
 
             const filedir = dirname(filename);
-            module.dependencyPaths = [];
+            module.dependencyPaths = module.dependencyPaths || [];
             nodepath.traverse(
               AmdVisitor(filedir, cwd, module.dependencyPaths),
               this,
